@@ -285,7 +285,7 @@
       <div class="field wide">
         <label for="topExpressions">Top row factors — comma separated</label>
         <textarea id="topExpressions">x^2, 5, (x+2), 1/x, x^-3</textarea>
-        <div class="hint">Examples: x, 5, 2x, x^2, (x+2), 1/x, x^-3, (x^2+1)/x. Supports +, −, *, /, ^, parentheses, and implicit multiplication such as 2x.</div>
+        <div class="hint">Examples: x, y^2, 5, 2n, (p+2), 1/y, z^-3, xy, (a^2+b)/c. Any letter is treated as a variable. Supports +, −, *, /, ^, parentheses, and implicit multiplication such as 2x or xy.</div>
       </div>
 
       <div class="field">
@@ -427,47 +427,76 @@
     isInteger() { return this.d === 1n; }
   }
 
-  // Polynomial = Map(nonnegative integer exponent -> Frac)
+  // ---------- multivariable polynomial / rational-function algebra ----------
+  // A polynomial is Map(monomialKey -> Frac). A monomial key stores powers
+  // of arbitrary one-letter variables, e.g. "x:2|y:1". Negative powers are
+  // represented through the rational-function denominator.
+
+  function monoKeyFromObject(obj) {
+    return Object.entries(obj)
+      .filter(([, e]) => e !== 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([v, e]) => `${v}:${e}`)
+      .join('|');
+  }
+
+  function monoObjectFromKey(key) {
+    const out = {};
+    if (!key) return out;
+    for (const part of key.split('|')) {
+      const [v, e] = part.split(':');
+      out[v] = Number(e);
+    }
+    return out;
+  }
+
+  function monoMulKeys(a, b) {
+    const out = monoObjectFromKey(a);
+    for (const [v, e] of Object.entries(monoObjectFromKey(b))) {
+      out[v] = (out[v] || 0) + e;
+    }
+    return monoKeyFromObject(out);
+  }
+
+  function monoDivKey(key, factorObj) {
+    const out = monoObjectFromKey(key);
+    for (const [v, e] of Object.entries(factorObj)) {
+      out[v] = (out[v] || 0) - e;
+      if (out[v] < 0) throw new Error('Internal monomial division error.');
+    }
+    return monoKeyFromObject(out);
+  }
+
   function polyClean(p) {
     const out = new Map();
-    for (const [e, c] of p) {
-      if (!c.isZero()) out.set(Number(e), c);
-    }
+    for (const [k, c] of p) if (!c.isZero()) out.set(k, c);
     return out;
   }
 
   function polyConst(c) {
     const p = new Map();
-    if (!c.isZero()) p.set(0, c);
+    if (!c.isZero()) p.set('', c);
     return p;
   }
 
-  function polyX() { return new Map([[1, Frac.one()]]); }
+  function polyVar(name) {
+    return new Map([[monoKeyFromObject({ [name]: 1 }), Frac.one()]]);
+  }
 
   function polyIsZero(p) { return p.size === 0; }
-
   function polyIsOne(p) {
-    return p.size === 1 && p.has(0) && p.get(0).isOne();
+    return p.size === 1 && p.has('') && p.get('').isOne();
   }
-
-  function polyDegree(p) {
-    if (polyIsZero(p)) return -Infinity;
-    return Math.max(...p.keys());
-  }
-
-  function polyLead(p) { return p.get(polyDegree(p)); }
 
   function polyAdd(a, b) {
     const out = new Map(a);
-    for (const [e, c] of b) {
-      out.set(e, (out.get(e) || Frac.zero()).add(c));
-    }
+    for (const [k, c] of b) out.set(k, (out.get(k) || Frac.zero()).add(c));
     return polyClean(out);
   }
 
   function polyNeg(a) {
     const out = new Map();
-    for (const [e, c] of a) out.set(e, c.neg());
+    for (const [k, c] of a) out.set(k, c.neg());
     return out;
   }
 
@@ -476,17 +505,17 @@
   function polyScale(a, s) {
     if (s.isZero()) return new Map();
     const out = new Map();
-    for (const [e, c] of a) out.set(e, c.mul(s));
+    for (const [k, c] of a) out.set(k, c.mul(s));
     return polyClean(out);
   }
 
   function polyMul(a, b) {
     if (polyIsZero(a) || polyIsZero(b)) return new Map();
     const out = new Map();
-    for (const [ea, ca] of a) {
-      for (const [eb, cb] of b) {
-        const e = ea + eb;
-        out.set(e, (out.get(e) || Frac.zero()).add(ca.mul(cb)));
+    for (const [ka, ca] of a) {
+      for (const [kb, cb] of b) {
+        const k = monoMulKeys(ka, kb);
+        out.set(k, (out.get(k) || Frac.zero()).add(ca.mul(cb)));
       }
     }
     return polyClean(out);
@@ -505,76 +534,133 @@
     return result;
   }
 
-  function polyDivMod(a, b) {
-    if (polyIsZero(b)) throw new Error('Division by zero polynomial.');
-    let rem = new Map(a);
+  function allVariablesInPoly(p) {
+    const set = new Set();
+    for (const key of p.keys()) {
+      for (const v of Object.keys(monoObjectFromKey(key))) set.add(v);
+    }
+    return [...set].sort();
+  }
+
+  function polyCommonMonomial(p) {
+    if (polyIsZero(p)) return {};
+    const vars = allVariablesInPoly(p);
+    const terms = [...p.keys()].map(monoObjectFromKey);
+    const common = {};
+    for (const v of vars) {
+      const m = Math.min(...terms.map(t => t[v] || 0));
+      if (m > 0) common[v] = m;
+    }
+    return common;
+  }
+
+  function commonMonomial(a, b) {
+    const ca = polyCommonMonomial(a);
+    const cb = polyCommonMonomial(b);
+    const out = {};
+    const vars = new Set([...Object.keys(ca), ...Object.keys(cb)]);
+    for (const v of vars) {
+      const m = Math.min(ca[v] || 0, cb[v] || 0);
+      if (m > 0) out[v] = m;
+    }
+    return out;
+  }
+
+  function polyDivideByMonomial(p, factorObj) {
+    const out = new Map();
+    for (const [k, c] of p) out.set(monoDivKey(k, factorObj), c);
+    return out;
+  }
+
+  function monoTotalDegree(key) {
+    return Object.values(monoObjectFromKey(key)).reduce((a, b) => a + b, 0);
+  }
+
+  function monoCompare(a, b) {
+    const da = monoTotalDegree(a), db = monoTotalDegree(b);
+    if (da !== db) return db - da;
+    const va = monoObjectFromKey(a), vb = monoObjectFromKey(b);
+    const vars = [...new Set([...Object.keys(va), ...Object.keys(vb)])].sort();
+    for (const v of vars) {
+      const ea = va[v] || 0, eb = vb[v] || 0;
+      if (ea !== eb) return eb - ea;
+    }
+    return a.localeCompare(b);
+  }
+
+  function polyLeadingTerm(p) {
+    if (polyIsZero(p)) return null;
+    const key = [...p.keys()].sort(monoCompare)[0];
+    return { key, coeff: p.get(key), powers: monoObjectFromKey(key) };
+  }
+
+  function monomialDivides(divisorPowers, dividendPowers) {
+    for (const [v, e] of Object.entries(divisorPowers)) {
+      if ((dividendPowers[v] || 0) < e) return false;
+    }
+    return true;
+  }
+
+  // Multivariate division by one divisor. This is enough to cancel exact
+  // factors that arise naturally from products such as (y+1)/(y+1).
+  function polyDivExactMaybe(dividend, divisor) {
+    if (polyIsZero(divisor)) return null;
+    let rem = new Map(dividend);
     let quo = new Map();
-    const db = polyDegree(b);
-    const lcb = polyLead(b);
+    const ld = polyLeadingTerm(divisor);
+    let guard = 0;
 
-    while (!polyIsZero(rem) && polyDegree(rem) >= db) {
-      const shift = polyDegree(rem) - db;
-      const coeff = polyLead(rem).div(lcb);
-      const term = new Map([[shift, coeff]]);
+    while (!polyIsZero(rem) && guard++ < 500) {
+      const lr = polyLeadingTerm(rem);
+      if (!monomialDivides(ld.powers, lr.powers)) return null;
+      const qPowers = { ...lr.powers };
+      for (const [v, e] of Object.entries(ld.powers)) qPowers[v] = (qPowers[v] || 0) - e;
+      const qKey = monoKeyFromObject(qPowers);
+      const qCoeff = lr.coeff.div(ld.coeff);
+      const term = new Map([[qKey, qCoeff]]);
       quo = polyAdd(quo, term);
-      rem = polySub(rem, polyMul(term, b));
+      rem = polySub(rem, polyMul(term, divisor));
     }
 
-    return { q: polyClean(quo), r: polyClean(rem) };
+    return polyIsZero(rem) ? polyClean(quo) : null;
   }
 
-  function polyMonic(a) {
-    if (polyIsZero(a)) return new Map();
-    return polyScale(a, Frac.one().div(polyLead(a)));
-  }
+  function normalizeRational(num, den) {
+    if (polyIsZero(den)) throw new Error('Division by zero.');
+    if (polyIsZero(num)) return { num: new Map(), den: polyConst(Frac.one()) };
 
-  function polyGcd(a, b) {
-    let x = new Map(a);
-    let y = new Map(b);
-    if (polyIsZero(x)) return polyMonic(y);
-    if (polyIsZero(y)) return polyMonic(x);
-
-    while (!polyIsZero(y)) {
-      const { r } = polyDivMod(x, y);
-      x = y;
-      y = r;
+    // Cancel any monomial factor shared by every numerator/denominator term.
+    const cm = commonMonomial(num, den);
+    if (Object.keys(cm).length) {
+      num = polyDivideByMonomial(num, cm);
+      den = polyDivideByMonomial(den, cm);
     }
-    return polyMonic(x);
-  }
 
-  function polyDivExact(a, b) {
-    const { q, r } = polyDivMod(a, b);
-    if (!polyIsZero(r)) throw new Error('Internal simplification error.');
-    return q;
+    // Cancel an exact polynomial factor when one side divides the other.
+    let q = polyDivExactMaybe(num, den);
+    if (q) return { num: q, den: polyConst(Frac.one()) };
+    q = polyDivExactMaybe(den, num);
+    if (q) return { num: polyConst(Frac.one()), den: q };
+
+    // Normalize the denominator's leading coefficient to 1. This also
+    // removes common numeric factors such as 2x/2 -> x.
+    const lead = polyLeadingTerm(den);
+    const scale = Frac.one().div(lead.coeff);
+    num = polyScale(num, scale);
+    den = polyScale(den, scale);
+
+    return { num, den };
   }
 
   class RFunc {
     constructor(num, den = polyConst(Frac.one())) {
-      if (polyIsZero(den)) throw new Error('Division by zero.');
-
-      if (polyIsZero(num)) {
-        this.num = new Map();
-        this.den = polyConst(Frac.one());
-        return;
-      }
-
-      const g = polyGcd(num, den);
-      let n = polyDivExact(num, g);
-      let d = polyDivExact(den, g);
-
-      // Normalize denominator to be monic. Over rational coefficients this
-      // also removes any common scalar factor cleanly.
-      const lc = polyLead(d);
-      const scale = Frac.one().div(lc);
-      n = polyScale(n, scale);
-      d = polyScale(d, scale);
-
-      this.num = n;
-      this.den = d;
+      const normalized = normalizeRational(num, den);
+      this.num = normalized.num;
+      this.den = normalized.den;
     }
 
     static constant(c) { return new RFunc(polyConst(c)); }
-    static x() { return new RFunc(polyX()); }
+    static variable(name) { return new RFunc(polyVar(name)); }
 
     add(o) {
       return new RFunc(
@@ -638,8 +724,10 @@
         continue;
       }
 
-      if (ch === 'x' || ch === 'X') {
-        tokens.push({ type: 'x', value: 'x' });
+      // Any single Latin letter is a variable. Adjacent letters such as xy
+      // are tokenized separately and implicit multiplication is inserted.
+      if (/[A-Za-z]/.test(ch)) {
+        tokens.push({ type: 'var', value: ch });
         i++;
         continue;
       }
@@ -659,12 +747,12 @@
         continue;
       }
 
-      throw new Error(`Unsupported character "${ch}". Use x, numbers, +, -, *, /, ^, and parentheses.`);
+      throw new Error(`Unsupported character "${ch}". Use letter variables, numbers, +, -, *, /, ^, and parentheses.`);
     }
 
     const out = [];
-    const canEnd = t => t && (t.type === 'num' || t.type === 'x' || t.type === 'rparen');
-    const canStart = t => t && (t.type === 'num' || t.type === 'x' || t.type === 'lparen');
+    const canEnd = t => t && (t.type === 'num' || t.type === 'var' || t.type === 'rparen');
+    const canStart = t => t && (t.type === 'num' || t.type === 'var' || t.type === 'lparen');
 
     for (const token of tokens) {
       const prev = out[out.length - 1];
@@ -732,16 +820,16 @@
 
     function parsePrimary() {
       const t = tokens[pos];
-      if (!t) throw new Error('Expected a number, x, or parentheses.');
+      if (!t) throw new Error('Expected a number, variable, or parentheses.');
 
       if (t.type === 'num') {
         pos++;
         return RFunc.constant(Frac.fromString(t.value));
       }
 
-      if (t.type === 'x') {
+      if (t.type === 'var') {
         pos++;
-        return RFunc.x();
+        return RFunc.variable(t.value);
       }
 
       if (t.type === 'lparen') {
@@ -762,8 +850,8 @@
   function extractIntegerConstant(rf) {
     if (!polyIsOne(rf.den)) throw new Error('Exponents must be integer constants.');
     if (rf.num.size === 0) return 0;
-    if (rf.num.size !== 1 || !rf.num.has(0)) throw new Error('Exponents must be integer constants.');
-    const c = rf.num.get(0);
+    if (rf.num.size !== 1 || !rf.num.has('')) throw new Error('Exponents must be integer constants.');
+    const c = rf.num.get('');
     if (!c.isInteger()) throw new Error('Exponents must be integers.');
     const n = Number(c.n);
     if (!Number.isSafeInteger(n)) throw new Error('Exponent is too large.');
@@ -791,15 +879,25 @@
     return `<span class="frac"><span class="num">${a.n}</span><span class="den">${a.d}</span></span>`;
   }
 
+  function monomialHTML(key) {
+    if (!key) return '';
+    const powers = monoObjectFromKey(key);
+    return Object.keys(powers).sort().map(v => {
+      const e = powers[v];
+      return e === 1 ? v : `${v}<sup>${e}</sup>`;
+    }).join('');
+  }
+
   function polyHTML(p) {
     if (polyIsZero(p)) return '0';
-    const exps = [...p.keys()].sort((a, b) => b - a);
+    const keys = [...p.keys()].sort(monoCompare);
     let html = '';
 
-    exps.forEach((e, idx) => {
-      const c = p.get(e);
+    keys.forEach((key, idx) => {
+      const c = p.get(key);
       const negative = c.n < 0n;
       const absC = c.abs();
+      const mono = monomialHTML(key);
 
       if (idx === 0) {
         if (negative) html += '&minus;';
@@ -807,12 +905,11 @@
         html += negative ? ' &minus; ' : ' + ';
       }
 
-      if (e === 0) {
+      if (!mono) {
         html += fracHTML(absC);
       } else {
         if (!absC.isOne()) html += fracHTML(absC);
-        html += 'x';
-        if (e !== 1) html += `<sup>${e}</sup>`;
+        html += mono;
       }
     });
 
