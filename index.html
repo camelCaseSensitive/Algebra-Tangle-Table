@@ -639,8 +639,14 @@
     // Cancel an exact polynomial factor when one side divides the other.
     let q = polyDivExactMaybe(num, den);
     if (q) return { num: q, den: polyConst(Frac.one()) };
-    q = polyDivExactMaybe(den, num);
-    if (q) return { num: polyConst(Frac.one()), den: q };
+    // If the numerator is a nonconstant polynomial factor of the denominator,
+    // cancel it (for example x/x^2 -> 1/x). Do NOT do this when the numerator
+    // is only a numeric constant: 2/x should stay 2/x, not become 1/(x/2).
+    const numeratorHasVariables = [...num.keys()].some(k => k !== '');
+    if (numeratorHasVariables) {
+      q = polyDivExactMaybe(den, num);
+      if (q) return { num: polyConst(Frac.one()), den: q };
+    }
 
     // Normalize the denominator's leading coefficient to 1. This also
     // removes common numeric factors such as 2x/2 -> x.
