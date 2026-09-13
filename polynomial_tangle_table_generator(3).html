@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Algebra Tangle Table Generator</title>
+<style>
+  :root {
+    --ink: #111;
+    --paper: #fff;
+    --line: #1a1a1a;
+    --cell-w: 132px;
+    --cell-h: 88px;
+    --math-size: 23px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    color: var(--ink);
+    background: #ececec;
+  }
+
+  .app {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  .controls {
+    background: var(--paper);
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  }
+
+  .controls h1 {
+    font-size: 22px;
+    margin: 0 0 14px;
+  }
+
+  .control-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
+    gap: 12px 18px;
+    align-items: end;
+  }
+
+  .wide { grid-column: span 3; }
+
+  .field label,
+  .difficulty-wrap label {
+    display: block;
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+
+  input[type="number"], textarea {
+    width: 100%;
+    padding: 9px 10px;
+    font-size: 15px;
+    border: 1px solid #aaa;
+    border-radius: 6px;
+    background: white;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  textarea {
+    min-height: 70px;
+    resize: vertical;
+    line-height: 1.35;
+  }
+
+  .hint {
+    margin-top: 5px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: #666;
+  }
+
+  .difficulty-wrap { grid-column: span 2; }
+
+  .slider-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .slider-row span {
+    font-size: 12px;
+    color: #666;
+    white-space: nowrap;
+  }
+
+  input[type="range"] { width: 100%; }
+
+  .buttons {
+    grid-column: span 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  button {
+    border: 1px solid #222;
+    background: white;
+    color: #111;
+    border-radius: 6px;
+    padding: 9px 13px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  button.primary {
+    background: #111;
+    color: white;
+  }
+
+  button:hover { transform: translateY(-1px); }
+  button:disabled { opacity: .5; cursor: default; transform: none; }
+
+  .status {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #444;
+    min-height: 18px;
+  }
+
+  .sheet {
+    background: var(--paper);
+    min-height: 760px;
+    padding: 30px 28px 36px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  }
+
+  .worksheet-head {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: end;
+    gap: 18px;
+    margin-bottom: 28px;
+    font-size: 15px;
+  }
+
+  .worksheet-head .title {
+    font-weight: 700;
+    font-size: 20px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .line {
+    display: inline-block;
+    min-width: 190px;
+    border-bottom: 1px solid #111;
+    transform: translateY(-2px);
+  }
+
+  .table-wrap {
+    width: 100%;
+    overflow: auto;
+    padding-bottom: 6px;
+  }
+
+  table.tangle {
+    border-collapse: collapse;
+    margin: 0 auto;
+    table-layout: fixed;
+    background: white;
+  }
+
+  table.tangle th,
+  table.tangle td {
+    border: 2px solid var(--line);
+    width: var(--cell-w);
+    min-width: var(--cell-w);
+    height: var(--cell-h);
+    text-align: center;
+    vertical-align: middle;
+    padding: 5px 7px;
+    font-size: var(--math-size);
+    font-weight: 500;
+    font-family: Arial, Helvetica, sans-serif;
+    white-space: nowrap;
+  }
+
+  table.tangle th.corner {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 5px,
+      rgba(0,0,0,.52) 5px,
+      rgba(0,0,0,.52) 6px
+    );
+  }
+
+  table.tangle th.header-cell,
+  table.tangle th.header-given,
+  table.tangle td.given {
+    font-weight: 500;
+  }
+
+  table.tangle td.answer-added,
+  table.tangle th.answer-added {
+    background: #f3f3f3;
+    color: #555;
+  }
+
+  .math sup {
+    font-size: .62em;
+    vertical-align: super;
+    line-height: 0;
+  }
+
+  .frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: stretch;
+    vertical-align: middle;
+    line-height: 1.02;
+    min-width: 1.1em;
+  }
+
+  .frac > .num {
+    border-bottom: 1.4px solid currentColor;
+    padding: 0 .13em .08em;
+  }
+
+  .frac > .den {
+    padding: .08em .13em 0;
+  }
+
+  .directions {
+    margin: 22px auto 0;
+    max-width: 920px;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #222;
+  }
+
+  .answer-note {
+    display: none;
+    margin: 12px auto 0;
+    max-width: 920px;
+    font-size: 13px;
+    color: #555;
+  }
+
+  body.showing-solution .answer-note { display: block; }
+
+  @media (max-width: 850px) {
+    .control-grid { grid-template-columns: repeat(2, 1fr); }
+    .wide, .difficulty-wrap, .buttons { grid-column: span 2; }
+    .worksheet-head { grid-template-columns: 1fr; text-align: left; }
+    .worksheet-head .title { order: -1; text-align: left; }
+  }
+
+  @page {
+    size: landscape;
+    margin: .42in;
+  }
+
+  @media print {
+    body { background: white; }
+    .app { max-width: none; margin: 0; padding: 0; }
+    .controls { display: none !important; }
+    .sheet { box-shadow: none; min-height: 0; padding: 0; }
+    .table-wrap { overflow: visible; }
+    .directions { margin-top: 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="controls">
+    <h1>Algebra Tangle Table Generator</h1>
+
+    <div class="control-grid">
+      <div class="field wide">
+        <label for="topExpressions">Top row factors — comma separated</label>
+        <textarea id="topExpressions">x^2, 5, (x+2), 1/x, x^-3</textarea>
+        <div class="hint">Examples: x, 5, 2x, x^2, (x+2), 1/x, x^-3, (x^2+1)/x. Supports +, −, *, /, ^, parentheses, and implicit multiplication such as 2x.</div>
+      </div>
+
+      <div class="field">
+        <label for="topGiven">Top factors given</label>
+        <input id="topGiven" type="number" value="1" min="0" step="1" />
+      </div>
+
+      <div class="field wide">
+        <label for="sideExpressions">Left column factors — comma separated</label>
+        <textarea id="sideExpressions">x, (x+1), 2, x^-1, (x-3)</textarea>
+        <div class="hint">The student version does not list these choices. The clue layout is generated so the missing headers can be inferred from the products and the factors you choose to reveal.</div>
+      </div>
+
+      <div class="field">
+        <label for="sideGiven">Side factors given</label>
+        <input id="sideGiven" type="number" value="1" min="0" step="1" />
+      </div>
+
+      <div class="difficulty-wrap">
+        <label for="difficulty">Difficulty: <span id="difficultyLabel">6</span>/10</label>
+        <div class="slider-row">
+          <span>More clues</span>
+          <input id="difficulty" type="range" min="1" max="10" value="6" step="1" />
+          <span>Minimum inference path</span>
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button id="generateBtn" class="primary">Generate New Table</button>
+        <button id="solutionBtn">Show Solution</button>
+        <button id="printBtn">Print / Save PDF</button>
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </section>
+
+  <main class="sheet">
+    <div class="worksheet-head">
+      <div>Name: <span class="line"></span></div>
+      <div class="title">Algebra Tangle Table</div>
+      <div style="text-align:right">Date: <span class="line" style="min-width:150px"></span></div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="tangle" id="tangleTable" aria-label="Algebra tangle table"></table>
+    </div>
+
+    <div class="directions" id="directions">
+      Use the given products to determine the missing row and column factors. Then complete the remaining products.
+    </div>
+    <div class="answer-note">Gray cells and gray headers were blank on the student version.</div>
+  </main>
+</div>
+
+<script>
+(() => {
+  const topExpressionsInput = document.getElementById('topExpressions');
+  const sideExpressionsInput = document.getElementById('sideExpressions');
+  const topGivenInput = document.getElementById('topGiven');
+  const sideGivenInput = document.getElementById('sideGiven');
+  const difficultyInput = document.getElementById('difficulty');
+  const difficultyLabel = document.getElementById('difficultyLabel');
+  const generateBtn = document.getElementById('generateBtn');
+  const solutionBtn = document.getElementById('solutionBtn');
+  const printBtn = document.getElementById('printBtn');
+  const statusEl = document.getElementById('status');
+  const tableEl = document.getElementById('tangleTable');
+
+  let puzzle = null;
+  let showingSolution = false;
+
+  difficultyInput.addEventListener('input', () => {
+    difficultyLabel.textContent = difficultyInput.value;
+  });
+
+  generateBtn.addEventListener('click', generatePuzzle);
+
+  solutionBtn.addEventListener('click', () => {
+    if (!puzzle) return;
+    showingSolution = !showingSolution;
+    document.body.classList.toggle('showing-solution', showingSolution);
+    solutionBtn.textContent = showingSolution ? 'Hide Solution' : 'Show Solution';
+    renderTable();
+  });
+
+  printBtn.addEventListener('click', () => window.print());
+
+  // ---------- exact rational arithmetic ----------
+
+  function bigAbs(n) { return n < 0n ? -n : n; }
+
+  function bigGcd(a, b) {
+    a = bigAbs(a);
+    b = bigAbs(b);
+    while (b !== 0n) {
+      const t = a % b;
+      a = b;
+      b = t;
+    }
+    return a || 1n;
+  }
+
+  class Frac {
+    constructor(n, d = 1n) {
+      if (d === 0n) throw new Error('Division by zero.');
+      if (d < 0n) { n = -n; d = -d; }
+      const g = bigGcd(n, d);
+      this.n = n / g;
+      this.d = d / g;
+    }
+
+    static zero() { return new Frac(0n); }
+    static one() { return new Frac(1n); }
+
+    static fromString(s) {
+      if (!s.includes('.')) return new Frac(BigInt(s));
+      const parts = s.split('.');
+      const whole = parts[0] || '0';
+      const dec = parts[1] || '';
+      const sign = whole.startsWith('-') ? -1n : 1n;
+      const cleanWhole = whole.replace('-', '') || '0';
+      const n = BigInt(cleanWhole + dec) * sign;
+      const d = 10n ** BigInt(dec.length);
+      return new Frac(n, d);
+    }
+
+    add(o) { return new Frac(this.n * o.d + o.n * this.d, this.d * o.d); }
+    sub(o) { return new Frac(this.n * o.d - o.n * this.d, this.d * o.d); }
+    mul(o) { return new Frac(this.n * o.n, this.d * o.d); }
+    div(o) {
+      if (o.n === 0n) throw new Error('Division by zero.');
+      return new Frac(this.n * o.d, this.d * o.n);
+    }
+    neg() { return new Frac(-this.n, this.d); }
+    abs() { return new Frac(bigAbs(this.n), this.d); }
+    isZero() { return this.n === 0n; }
+    isOne() { return this.n === this.d; }
+    isInteger() { return this.d === 1n; }
+  }
+
+  // Polynomial = Map(nonnegative integer exponent -> Frac)
+  function polyClean(p) {
+    const out = new Map();
+    for (const [e, c] of p) {
+      if (!c.isZero()) out.set(Number(e), c);
+    }
+    return out;
+  }
+
+  function polyConst(c) {
+    const p = new Map();
+    if (!c.isZero()) p.set(0, c);
+    return p;
+  }
+
+  function polyX() { return new Map([[1, Frac.one()]]); }
+
+  function polyIsZero(p) { return p.size === 0; }
+
+  function polyIsOne(p) {
+    return p.size === 1 && p.has(0) && p.get(0).isOne();
+  }
+
+  function polyDegree(p) {
+    if (polyIsZero(p)) return -Infinity;
+    return Math.max(...p.keys());
+  }
+
+  function polyLead(p) { return p.get(polyDegree(p)); }
+
+  function polyAdd(a, b) {
+    const out = new Map(a);
+    for (const [e, c] of b) {
+      out.set(e, (out.get(e) || Frac.zero()).add(c));
+    }
+    return polyClean(out);
+  }
+
+  function polyNeg(a) {
+    const out = new Map();
+    for (const [e, c] of a) out.set(e, c.neg());
+    return out;
+  }
+
+  function polySub(a, b) { return polyAdd(a, polyNeg(b)); }
+
+  function polyScale(a, s) {
+    if (s.isZero()) return new Map();
+    const out = new Map();
+    for (const [e, c] of a) out.set(e, c.mul(s));
+    return polyClean(out);
+  }
+
+  function polyMul(a, b) {
+    if (polyIsZero(a) || polyIsZero(b)) return new Map();
+    const out = new Map();
+    for (const [ea, ca] of a) {
+      for (const [eb, cb] of b) {
+        const e = ea + eb;
+        out.set(e, (out.get(e) || Frac.zero()).add(ca.mul(cb)));
+      }
+    }
+    return polyClean(out);
+  }
+
+  function polyPow(a, n) {
+    if (n < 0) throw new Error('Internal polynomial power error.');
+    let result = polyConst(Frac.one());
+    let base = a;
+    let k = n;
+    while (k > 0) {
+      if (k & 1) result = polyMul(result, base);
+      k >>= 1;
+      if (k) base = polyMul(base, base);
+    }
+    return result;
+  }
+
+  function polyDivMod(a, b) {
+    if (polyIsZero(b)) throw new Error('Division by zero polynomial.');
+    let rem = new Map(a);
+    let quo = new Map();
+    const db = polyDegree(b);
+    const lcb = polyLead(b);
+
+    while (!polyIsZero(rem) && polyDegree(rem) >= db) {
+      const shift = polyDegree(rem) - db;
+      const coeff = polyLead(rem).div(lcb);
+      const term = new Map([[shift, coeff]]);
+      quo = polyAdd(quo, term);
+      rem = polySub(rem, polyMul(term, b));
+    }
+
+    return { q: polyClean(quo), r: polyClean(rem) };
+  }
+
+  function polyMonic(a) {
+    if (polyIsZero(a)) return new Map();
+    return polyScale(a, Frac.one().div(polyLead(a)));
+  }
+
+  function polyGcd(a, b) {
+    let x = new Map(a);
+    let y = new Map(b);
+    if (polyIsZero(x)) return polyMonic(y);
+    if (polyIsZero(y)) return polyMonic(x);
+
+    while (!polyIsZero(y)) {
+      const { r } = polyDivMod(x, y);
+      x = y;
+      y = r;
+    }
+    return polyMonic(x);
+  }
+
+  function polyDivExact(a, b) {
+    const { q, r } = polyDivMod(a, b);
+    if (!polyIsZero(r)) throw new Error('Internal simplification error.');
+    return q;
+  }
+
+  class RFunc {
+    constructor(num, den = polyConst(Frac.one())) {
+      if (polyIsZero(den)) throw new Error('Division by zero.');
+
+      if (polyIsZero(num)) {
+        this.num = new Map();
+        this.den = polyConst(Frac.one());
+        return;
+      }
+
+      const g = polyGcd(num, den);
+      let n = polyDivExact(num, g);
+      let d = polyDivExact(den, g);
+
+      // Normalize denominator to be monic. Over rational coefficients this
+      // also removes any common scalar factor cleanly.
+      const lc = polyLead(d);
+      const scale = Frac.one().div(lc);
+      n = polyScale(n, scale);
+      d = polyScale(d, scale);
+
+      this.num = n;
+      this.den = d;
+    }
+
+    static constant(c) { return new RFunc(polyConst(c)); }
+    static x() { return new RFunc(polyX()); }
+
+    add(o) {
+      return new RFunc(
+        polyAdd(polyMul(this.num, o.den), polyMul(o.num, this.den)),
+        polyMul(this.den, o.den)
+      );
+    }
+
+    sub(o) {
+      return new RFunc(
+        polySub(polyMul(this.num, o.den), polyMul(o.num, this.den)),
+        polyMul(this.den, o.den)
+      );
+    }
+
+    mul(o) {
+      return new RFunc(polyMul(this.num, o.num), polyMul(this.den, o.den));
+    }
+
+    div(o) {
+      if (polyIsZero(o.num)) throw new Error('Division by zero.');
+      return new RFunc(polyMul(this.num, o.den), polyMul(this.den, o.num));
+    }
+
+    neg() { return new RFunc(polyNeg(this.num), this.den); }
+    isZero() { return polyIsZero(this.num); }
+  }
+
+  function rfPow(base, exp) {
+    if (!Number.isInteger(exp)) throw new Error('Powers must be integers.');
+    if (Math.abs(exp) > 20) throw new Error('Please keep exponents between -20 and 20.');
+    if (exp === 0) return RFunc.constant(Frac.one());
+    if (exp < 0) {
+      if (base.isZero()) throw new Error('Zero cannot have a negative exponent.');
+      return new RFunc(polyPow(base.den, -exp), polyPow(base.num, -exp));
+    }
+    return new RFunc(polyPow(base.num, exp), polyPow(base.den, exp));
+  }
+
+  // ---------- expression parser ----------
+
+  function tokenizeExpression(source) {
+    const tokens = [];
+    let i = 0;
+
+    while (i < source.length) {
+      const ch = source[i];
+      if (/\s/.test(ch)) { i++; continue; }
+
+      if (/[0-9.]/.test(ch)) {
+        let j = i;
+        let dots = 0;
+        while (j < source.length && /[0-9.]/.test(source[j])) {
+          if (source[j] === '.') dots++;
+          j++;
+        }
+        const text = source.slice(i, j);
+        if (dots > 1 || text === '.') throw new Error(`Invalid number "${text}".`);
+        tokens.push({ type: 'num', value: text });
+        i = j;
+        continue;
+      }
+
+      if (ch === 'x' || ch === 'X') {
+        tokens.push({ type: 'x', value: 'x' });
+        i++;
+        continue;
+      }
+
+      if ('+-*/^()'.includes(ch)) {
+        tokens.push({
+          type: ch === '(' ? 'lparen' : (ch === ')' ? 'rparen' : 'op'),
+          value: ch
+        });
+        i++;
+        continue;
+      }
+
+      if (ch === '−' || ch === '–') {
+        tokens.push({ type: 'op', value: '-' });
+        i++;
+        continue;
+      }
+
+      throw new Error(`Unsupported character "${ch}". Use x, numbers, +, -, *, /, ^, and parentheses.`);
+    }
+
+    const out = [];
+    const canEnd = t => t && (t.type === 'num' || t.type === 'x' || t.type === 'rparen');
+    const canStart = t => t && (t.type === 'num' || t.type === 'x' || t.type === 'lparen');
+
+    for (const token of tokens) {
+      const prev = out[out.length - 1];
+      if (canEnd(prev) && canStart(token)) out.push({ type: 'op', value: '*' });
+      out.push(token);
+    }
+
+    return out;
+  }
+
+  function parseExpression(source) {
+    const tokens = tokenizeExpression(source);
+    let pos = 0;
+
+    function peek(value = null) {
+      const t = tokens[pos];
+      if (!t) return false;
+      return value === null ? t : t.value === value;
+    }
+
+    function take(value = null) {
+      const t = tokens[pos];
+      if (!t) throw new Error('Unexpected end of expression.');
+      if (value !== null && t.value !== value) throw new Error(`Expected "${value}".`);
+      pos++;
+      return t;
+    }
+
+    function parseExpr() {
+      let left = parseTerm();
+      while (peek('+') || peek('-')) {
+        const op = take().value;
+        const right = parseTerm();
+        left = op === '+' ? left.add(right) : left.sub(right);
+      }
+      return left;
+    }
+
+    function parseTerm() {
+      let left = parseUnary();
+      while (peek('*') || peek('/')) {
+        const op = take().value;
+        const right = parseUnary();
+        left = op === '*' ? left.mul(right) : left.div(right);
+      }
+      return left;
+    }
+
+    function parseUnary() {
+      if (peek('+')) { take('+'); return parseUnary(); }
+      if (peek('-')) { take('-'); return parseUnary().neg(); }
+      return parsePower();
+    }
+
+    function parsePower() {
+      let base = parsePrimary();
+      if (peek('^')) {
+        take('^');
+        const expRF = parseUnary();
+        const exp = extractIntegerConstant(expRF);
+        base = rfPow(base, exp);
+      }
+      return base;
+    }
+
+    function parsePrimary() {
+      const t = tokens[pos];
+      if (!t) throw new Error('Expected a number, x, or parentheses.');
+
+      if (t.type === 'num') {
+        pos++;
+        return RFunc.constant(Frac.fromString(t.value));
+      }
+
+      if (t.type === 'x') {
+        pos++;
+        return RFunc.x();
+      }
+
+      if (t.type === 'lparen') {
+        take('(');
+        const inside = parseExpr();
+        take(')');
+        return inside;
+      }
+
+      throw new Error(`Unexpected "${t.value}".`);
+    }
+
+    const result = parseExpr();
+    if (pos !== tokens.length) throw new Error(`Unexpected "${tokens[pos].value}".`);
+    return result;
+  }
+
+  function extractIntegerConstant(rf) {
+    if (!polyIsOne(rf.den)) throw new Error('Exponents must be integer constants.');
+    if (rf.num.size === 0) return 0;
+    if (rf.num.size !== 1 || !rf.num.has(0)) throw new Error('Exponents must be integer constants.');
+    const c = rf.num.get(0);
+    if (!c.isInteger()) throw new Error('Exponents must be integers.');
+    const n = Number(c.n);
+    if (!Number.isSafeInteger(n)) throw new Error('Exponent is too large.');
+    return n;
+  }
+
+  // ---------- pretty math HTML ----------
+
+  function escapeHTML(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function prettyRawHTML(raw) {
+    let s = escapeHTML(raw.trim());
+    s = s.replace(/\^\s*\(\s*([+-]?\d+)\s*\)/g, '<sup>$1</sup>');
+    s = s.replace(/\^\s*([+-]?\d+)/g, '<sup>$1</sup>');
+    s = s.replace(/\*/g, '&middot;');
+    s = s.replace(/-/g, '&minus;');
+    return `<span class="math">${s}</span>`;
+  }
+
+  function fracHTML(f) {
+    const a = f.abs();
+    if (a.d === 1n) return a.n.toString();
+    return `<span class="frac"><span class="num">${a.n}</span><span class="den">${a.d}</span></span>`;
+  }
+
+  function polyHTML(p) {
+    if (polyIsZero(p)) return '0';
+    const exps = [...p.keys()].sort((a, b) => b - a);
+    let html = '';
+
+    exps.forEach((e, idx) => {
+      const c = p.get(e);
+      const negative = c.n < 0n;
+      const absC = c.abs();
+
+      if (idx === 0) {
+        if (negative) html += '&minus;';
+      } else {
+        html += negative ? ' &minus; ' : ' + ';
+      }
+
+      if (e === 0) {
+        html += fracHTML(absC);
+      } else {
+        if (!absC.isOne()) html += fracHTML(absC);
+        html += 'x';
+        if (e !== 1) html += `<sup>${e}</sup>`;
+      }
+    });
+
+    return html;
+  }
+
+  function rfHTML(rf) {
+    if (polyIsOne(rf.den)) return `<span class="math">${polyHTML(rf.num)}</span>`;
+    return `<span class="math frac"><span class="num">${polyHTML(rf.num)}</span><span class="den">${polyHTML(rf.den)}</span></span>`;
+  }
+
+  function headerFactorHTML(item) {
+    // Preserve the user's typed form for ordinary factors, but render
+    // expressions entered with division as a stacked fraction.
+    return item.raw.includes('/') ? rfHTML(item.rf) : prettyRawHTML(item.raw);
+  }
+
+  // ---------- puzzle generation ----------
+
+  function parseList(text, label) {
+    const parts = text.split(',').map(s => s.trim()).filter(Boolean);
+    if (parts.length < 2) throw new Error(`${label} needs at least 2 comma-separated expressions.`);
+    if (parts.length > 12) throw new Error(`${label} can contain at most 12 expressions.`);
+
+    return parts.map((raw, i) => {
+      try {
+        const rf = parseExpression(raw);
+        if (rf.isZero()) throw new Error('Zero is not allowed because product clues could not determine the other factor.');
+        return { raw, rf };
+      } catch (err) {
+        throw new Error(`${label}, item ${i + 1} ("${raw}"): ${err.message}`);
+      }
+    });
+  }
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function indexRange(n) { return Array.from({ length: n }, (_, i) => i); }
+  function cellKey(r, c) { return `${r},${c}`; }
+
+  class DSU {
+    constructor(n) {
+      this.p = Array.from({ length: n }, (_, i) => i);
+      this.rank = Array(n).fill(0);
+    }
+    find(x) {
+      if (this.p[x] !== x) this.p[x] = this.find(this.p[x]);
+      return this.p[x];
+    }
+    union(a, b) {
+      a = this.find(a); b = this.find(b);
+      if (a === b) return false;
+      if (this.rank[a] < this.rank[b]) [a, b] = [b, a];
+      this.p[b] = a;
+      if (this.rank[a] === this.rank[b]) this.rank[a]++;
+      return true;
+    }
+  }
+
+  function buildMinimumInferenceClues(rowCount, colCount, givenRows, givenCols) {
+    const nodeCount = rowCount + colCount;
+    const root = nodeCount;
+    const dsu = new DSU(nodeCount + 1);
+
+    for (const r of givenRows) dsu.union(root, r);
+    for (const c of givenCols) dsu.union(root, rowCount + c);
+
+    const edges = [];
+    for (let r = 0; r < rowCount; r++) {
+      for (let c = 0; c < colCount; c++) {
+        edges.push({ r, c, a: r, b: rowCount + c, key: cellKey(r, c) });
+      }
+    }
+
+    const chosen = new Set();
+    for (const edge of shuffle(edges)) {
+      if (dsu.union(edge.a, edge.b)) chosen.add(edge.key);
+      const rootRep = dsu.find(root);
+      let allReached = true;
+      for (let i = 0; i < nodeCount; i++) {
+        if (dsu.find(i) !== rootRep) { allReached = false; break; }
+      }
+      if (allReached) break;
+    }
+
+    const rootRep = dsu.find(root);
+    for (let i = 0; i < nodeCount; i++) {
+      if (dsu.find(i) !== rootRep) throw new Error('Could not build a connected inference path.');
+    }
+
+    return chosen;
+  }
+
+  function validateInputs() {
+    const colFactors = parseList(topExpressionsInput.value, 'Top row');
+    const rowFactors = parseList(sideExpressionsInput.value, 'Left column');
+    let topGiven = Number(topGivenInput.value);
+    let sideGiven = Number(sideGivenInput.value);
+
+    if (!Number.isInteger(topGiven) || !Number.isInteger(sideGiven) || topGiven < 0 || sideGiven < 0) {
+      throw new Error('Given-factor counts must be whole numbers 0 or greater.');
+    }
+    if (topGiven > colFactors.length) throw new Error(`Top factors given cannot exceed ${colFactors.length}.`);
+    if (sideGiven > rowFactors.length) throw new Error(`Side factors given cannot exceed ${rowFactors.length}.`);
+
+    let autoAnchored = false;
+    if (topGiven + sideGiven === 0) {
+      topGiven = 1;
+      topGivenInput.value = '1';
+      autoAnchored = true;
+    }
+
+    topGivenInput.max = colFactors.length;
+    sideGivenInput.max = rowFactors.length;
+
+    return {
+      colFactors,
+      rowFactors,
+      colCount: colFactors.length,
+      rowCount: rowFactors.length,
+      topGiven,
+      sideGiven,
+      autoAnchored
+    };
+  }
+
+  function generatePuzzle() {
+    let config;
+    try {
+      config = validateInputs();
+    } catch (err) {
+      statusEl.textContent = err.message;
+      return;
+    }
+
+    generateBtn.disabled = true;
+    solutionBtn.disabled = true;
+    statusEl.textContent = 'Building a solvable inference table…';
+
+    setTimeout(() => {
+      try {
+        const {
+          colFactors, rowFactors, colCount, rowCount,
+          topGiven, sideGiven, autoAnchored
+        } = config;
+
+        const colSolution = shuffle(colFactors);
+        const rowSolution = shuffle(rowFactors);
+        const givenTopIndices = new Set(shuffle(indexRange(colCount)).slice(0, topGiven));
+        const givenSideIndices = new Set(shuffle(indexRange(rowCount)).slice(0, sideGiven));
+
+        // The minimum clue graph is a spanning forest rooted at the revealed
+        // headers. Therefore every hidden header can be obtained by repeatedly
+        // dividing a visible product by a header already known.
+        const minimumClues = buildMinimumInferenceClues(
+          rowCount, colCount, givenSideIndices, givenTopIndices
+        );
+
+        const allKeys = [];
+        for (let r = 0; r < rowCount; r++) {
+          for (let c = 0; c < colCount; c++) allKeys.push(cellKey(r, c));
+        }
+
+        const difficulty = Number(difficultyInput.value);
+        const t = (difficulty - 1) / 9;
+        const maxClues = allKeys.length;
+        const minClues = minimumClues.size;
+        const targetClues = Math.round(maxClues - t * (maxClues - minClues));
+
+        const finalClues = new Set(minimumClues);
+        const optional = shuffle(allKeys.filter(k => !minimumClues.has(k)));
+        while (finalClues.size < targetClues && optional.length) finalClues.add(optional.pop());
+
+        const productGrid = Array.from({ length: rowCount }, (_, r) =>
+          Array.from({ length: colCount }, (_, c) => rowSolution[r].rf.mul(colSolution[c].rf))
+        );
+
+        puzzle = {
+          ...config,
+          rowSolution,
+          colSolution,
+          givenTopIndices,
+          givenSideIndices,
+          clueSet: finalClues,
+          productGrid,
+          minClues
+        };
+
+        showingSolution = false;
+        document.body.classList.remove('showing-solution');
+        solutionBtn.textContent = 'Show Solution';
+        renderTable();
+
+        const blanks = rowCount * colCount - finalClues.size;
+        const anchorNote = autoAnchored ? ' • 1 top factor was automatically given to anchor the puzzle' : '';
+        statusEl.textContent =
+          `Inference path guaranteed • ${colCount} top factors • ${rowCount} side factors • ` +
+          `${topGiven} top given • ${sideGiven} side given • ${finalClues.size} product clues shown • ` +
+          `${blanks} blank product cells • minimum needed for this layout: ${minClues}${anchorNote}`;
+
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = err.message || 'Could not generate this table.';
+      } finally {
+        generateBtn.disabled = false;
+        solutionBtn.disabled = false;
+      }
+    }, 20);
+  }
+
+  function sizeTable(rowCount, colCount) {
+    const width = Math.max(76, Math.min(150, Math.floor(960 / (colCount + 1))));
+    const height = Math.max(52, Math.min(96, Math.floor(630 / (rowCount + 1))));
+    const font = Math.max(13, Math.min(24, Math.floor(Math.min(width, height) * 0.28)));
+    document.documentElement.style.setProperty('--cell-w', `${width}px`);
+    document.documentElement.style.setProperty('--cell-h', `${height}px`);
+    document.documentElement.style.setProperty('--math-size', `${font}px`);
+  }
+
+  function renderTable() {
+    if (!puzzle) return;
+
+    const {
+      rowCount, colCount,
+      rowSolution, colSolution,
+      givenTopIndices, givenSideIndices,
+      clueSet, productGrid
+    } = puzzle;
+
+    sizeTable(rowCount, colCount);
+    let html = '<thead><tr><th class="corner"></th>';
+
+    for (let c = 0; c < colCount; c++) {
+      const isGiven = givenTopIndices.has(c);
+      const show = isGiven || showingSolution;
+      const cls = isGiven ? 'header-cell header-given' : (showingSolution ? 'header-cell answer-added' : 'header-cell');
+      html += `<th class="${cls}">${show ? headerFactorHTML(colSolution[c]) : ''}</th>`;
+    }
+
+    html += '</tr></thead><tbody>';
+
+    for (let r = 0; r < rowCount; r++) {
+      const isGivenSide = givenSideIndices.has(r);
+      const showSide = isGivenSide || showingSolution;
+      const sideCls = isGivenSide ? 'header-cell header-given' : (showingSolution ? 'header-cell answer-added' : 'header-cell');
+      html += `<tr><th class="${sideCls}">${showSide ? headerFactorHTML(rowSolution[r]) : ''}</th>`;
+
+      for (let c = 0; c < colCount; c++) {
+        const key = cellKey(r, c);
+        const isGiven = clueSet.has(key);
+        if (isGiven) {
+          html += `<td class="given">${rfHTML(productGrid[r][c])}</td>`;
+        } else if (showingSolution) {
+          html += `<td class="answer-added">${rfHTML(productGrid[r][c])}</td>`;
+        } else {
+          html += '<td></td>';
+        }
+      }
+
+      html += '</tr>';
+    }
+
+    html += '</tbody>';
+    tableEl.innerHTML = html;
+  }
+
+  generatePuzzle();
+})();
+</script>
+</body>
+</html>
